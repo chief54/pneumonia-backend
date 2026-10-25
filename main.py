@@ -1,4 +1,10 @@
 # Updated main.py for production deployment
+import sys
+
+if sys.stdout.encoding != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from tensorflow.keras.models import load_model
@@ -14,14 +20,15 @@ from scipy import ndimage
 app = FastAPI()
 
 # === UPDATED CORS for production ===
+# Starlette's CORSMiddleware does NOT support glob patterns in `allow_origins`
+# (the old "https://*.vercel.app" entry never actually matched anything).
+# Wildcards belong in `allow_origin_regex` instead.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",  # Local development
-        "http://localhost:3000",  # Alternative local port
-        "https://*.vercel.app",   # All Vercel domains
-        "https://pneumonia-webapp.vercel.app",  # Your specific domain (update this)
+        "https://web-app-delta-silk.vercel.app",
     ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-zA-Z0-9-]+\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -344,11 +351,14 @@ async def predict(file: UploadFile = File(...)):
         prediction = model.predict(processed_img)
         confidence = float(prediction[0][0])
 
+        # Class index 0 = NORMAL, index 1 = PNEUMONIA (alphabetical, the Keras
+        # flow_from_directory / image_dataset_from_directory default), so a
+        # sigmoid output near 1 means PNEUMONIA, not Normal.
         if confidence > 0.5:
-            label = "Normal"
+            label = "Pneumonia"
             adjusted_confidence = confidence
         else:
-            label = "Pneumonia"
+            label = "Normal"
             adjusted_confidence = 1 - confidence
 
         print(f"🎯 Prediction: {label} ({adjusted_confidence:.4f} confidence)")
